@@ -1,0 +1,222 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: multiply-sum-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-11-10T03:59:08.179415',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "multiply then sum the
+      numbers", "inputs": [{"name": "num1", "type": "Float"}, {"name": "num2", "type":
+      "Float"}, {"name": "num3", "type": "Float"}], "name": "multiply_sum_pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22}
+spec:
+  entrypoint: multiply-sum-pipeline
+  templates:
+  - name: multiply-op
+    container:
+      args: [--num1, '{{inputs.parameters.num1}}', --num2, '{{inputs.parameters.num2}}',
+        '----output-paths', /tmp/outputs/output/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def multiply_op(num1, num2):
+            from src.core import Multiplier
+
+            obj = Multiplier()
+            out = obj(num1, num2)
+
+            return (out, )
+
+        def _serialize_float(float_value: float) -> str:
+            if isinstance(float_value, str):
+                return float_value
+            if not isinstance(float_value, (float, int)):
+                raise TypeError('Value "{}" has type "{}" instead of float.'.format(
+                    str(float_value), str(type(float_value))))
+            return str(float_value)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Multiply op', description='')
+        _parser.add_argument("--num1", dest="num1", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--num2", dest="num2", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = multiply_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_float,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/operators/multiply_op:v1.0.0
+      imagePullPolicy: Always
+    inputs:
+      parameters:
+      - {name: num1}
+      - {name: num2}
+    outputs:
+      parameters:
+      - name: multiply-op-output
+        valueFrom: {path: /tmp/outputs/output/data}
+      artifacts:
+      - {name: multiply-op-output, path: /tmp/outputs/output/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--num1", {"inputValue": "num1"}, "--num2", {"inputValue": "num2"},
+          "----output-paths", {"outputPath": "output"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def multiply_op(num1, num2):\n    from
+          src.core import Multiplier\n\n    obj = Multiplier()\n    out = obj(num1,
+          num2)\n\n    return (out, )\n\ndef _serialize_float(float_value: float)
+          -> str:\n    if isinstance(float_value, str):\n        return float_value\n    if
+          not isinstance(float_value, (float, int)):\n        raise TypeError(''Value
+          \"{}\" has type \"{}\" instead of float.''.format(\n            str(float_value),
+          str(type(float_value))))\n    return str(float_value)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Multiply op'', description='''')\n_parser.add_argument(\"--num1\",
+          dest=\"num1\", type=float, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--num2\",
+          dest=\"num2\", type=float, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = multiply_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_float,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "asia-docker.pkg.dev/tk-test-data/kubebuild/operators/multiply_op:v1.0.0"}},
+          "inputs": [{"name": "num1", "type": "Float"}, {"name": "num2", "type": "Float"}],
+          "name": "Multiply op", "outputs": [{"name": "output", "type": "Float"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "af9f29a2790e61427f41fd618e2d438caa0e4f7f981229c2d15343129c418c9d",
+          "url": "https://raw.githubusercontent.com/tiketdatastanley/centralized-operators/release/multiply_op/v1.0/manifests/multiply_op.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"num1": "{{inputs.parameters.num1}}",
+          "num2": "{{inputs.parameters.num2}}"}'}
+  - name: multiply-sum-pipeline
+    inputs:
+      parameters:
+      - {name: num1}
+      - {name: num2}
+      - {name: num3}
+    dag:
+      tasks:
+      - name: multiply-op
+        template: multiply-op
+        arguments:
+          parameters:
+          - {name: num1, value: '{{inputs.parameters.num1}}'}
+          - {name: num2, value: '{{inputs.parameters.num2}}'}
+      - name: sum-op
+        template: sum-op
+        dependencies: [multiply-op]
+        arguments:
+          parameters:
+          - {name: multiply-op-output, value: '{{tasks.multiply-op.outputs.parameters.multiply-op-output}}'}
+          - {name: num3, value: '{{inputs.parameters.num3}}'}
+  - name: sum-op
+    container:
+      args: [--num1, '{{inputs.parameters.multiply-op-output}}', --num2, '{{inputs.parameters.num3}}',
+        '----output-paths', /tmp/outputs/output/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def sum_op(num1, num2):
+            from src.core import Adder
+
+            obj = Adder()
+            out = obj(num1, num2)
+
+            return (out, )
+
+        def _serialize_float(float_value: float) -> str:
+            if isinstance(float_value, str):
+                return float_value
+            if not isinstance(float_value, (float, int)):
+                raise TypeError('Value "{}" has type "{}" instead of float.'.format(
+                    str(float_value), str(type(float_value))))
+            return str(float_value)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Sum op', description='')
+        _parser.add_argument("--num1", dest="num1", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--num2", dest="num2", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = sum_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_float,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/operators/sum_op:v1.0.0
+      imagePullPolicy: Always
+    inputs:
+      parameters:
+      - {name: multiply-op-output}
+      - {name: num3}
+    outputs:
+      artifacts:
+      - {name: sum-op-output, path: /tmp/outputs/output/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--num1", {"inputValue": "num1"}, "--num2", {"inputValue": "num2"},
+          "----output-paths", {"outputPath": "output"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def sum_op(num1, num2):\n    from src.core
+          import Adder\n\n    obj = Adder()\n    out = obj(num1, num2)\n\n    return
+          (out, )\n\ndef _serialize_float(float_value: float) -> str:\n    if isinstance(float_value,
+          str):\n        return float_value\n    if not isinstance(float_value, (float,
+          int)):\n        raise TypeError(''Value \"{}\" has type \"{}\" instead of
+          float.''.format(\n            str(float_value), str(type(float_value))))\n    return
+          str(float_value)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Sum
+          op'', description='''')\n_parser.add_argument(\"--num1\", dest=\"num1\",
+          type=float, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--num2\",
+          dest=\"num2\", type=float, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = sum_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_float,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "asia-docker.pkg.dev/tk-test-data/kubebuild/operators/sum_op:v1.0.0"}},
+          "inputs": [{"name": "num1", "type": "Float"}, {"name": "num2", "type": "Float"}],
+          "name": "Sum op", "outputs": [{"name": "output", "type": "Float"}]}', pipelines.kubeflow.org/component_ref: '{"digest":
+          "ef45bd0f23be4f4814de1db7580d7c97f2e172d2b7caaffde94b1771d716a8b3", "url":
+          "https://raw.githubusercontent.com/tiketdatastanley/centralized-operators/release/sum_op/v1.0/manifests/sum_op.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"num1": "{{inputs.parameters.multiply-op-output}}",
+          "num2": "{{inputs.parameters.num3}}"}'}
+  arguments:
+    parameters:
+    - {name: num1}
+    - {name: num2}
+    - {name: num3}
+  serviceAccountName: pipeline-runner
